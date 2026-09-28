@@ -2,23 +2,56 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>지렁이 게임</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
 <style>
-  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#1b2a1b; color:#dfd; font-family:sans-serif; }
-  canvas { width:min(400px, 92vw); height:auto; aspect-ratio:1; box-sizing:border-box; background:#0e1a0e; border:4px solid #4a7; border-radius:8px; touch-action:none; }
-  #info { margin:10px; font-size:18px; }
-  #pad { display:grid; grid-template-columns:repeat(3,64px); grid-template-rows:repeat(2,64px); gap:8px; margin-top:8px; }
-  #pad button { font-size:26px; border:0; border-radius:12px; background:#2f6b3f; color:#dfd; touch-action:manipulation; }
-  #pad button:active { background:#4a7; }
+  /* 작은 오락실 공통 스티커 스타일: 진한 남보라 테두리 + 아래로 떨어진 그림자 */
+  :root { --ink:#2b1d52; --yellow:#ffd23f; --pink:#ff5fa2; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    padding:12px; overscroll-behavior:none; user-select:none;
+    background:
+      repeating-linear-gradient(-30deg, rgba(255,255,255,.08) 0 26px, transparent 26px 56px),
+      linear-gradient(180deg, #7ed957 0%, #2fb35a 100%) fixed;
+    color:var(--ink); font-family:'Jua', -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  }
+  #info { display:flex; gap:10px; width:min(400px, 92vw); }
+  .pill {
+    display:flex; align-items:center; gap:6px; white-space:nowrap;
+    background:#fff; border:3px solid var(--ink); border-radius:999px; box-shadow:0 4px 0 var(--ink);
+    padding:4px 14px; font-size:20px; font-variant-numeric:tabular-nums;
+  }
+  .pill.score { background:var(--yellow); flex:1; }
+  .pill small { font-size:13px; color:#6b5c95; }
+  canvas {
+    width:min(400px, 92vw); height:auto; aspect-ratio:1; display:block;
+    border-radius:22px; touch-action:none;
+    box-shadow:0 0 0 4px var(--ink), 0 8px 0 4px var(--ink), 0 18px 34px rgba(0,0,0,.25);
+  }
+  #help {
+    margin:6px 0 0; text-align:center; font-size:14px; color:#fff;
+    paint-order:stroke fill; -webkit-text-stroke:4px var(--ink);
+  }
+  #pad { display:grid; grid-template-columns:repeat(3,64px); grid-template-rows:repeat(2,60px); gap:10px; }
+  #pad button {
+    font-size:24px; border:3px solid var(--ink); border-radius:18px; background:#fff; color:var(--ink);
+    box-shadow:0 5px 0 var(--ink); touch-action:manipulation; font-family:inherit; cursor:pointer;
+  }
+  #pad button:active { transform:translateY(4px); box-shadow:0 1px 0 var(--ink); background:var(--yellow); }
   #pad .up { grid-column:2; } #pad .l { grid-row:2; grid-column:1; } #pad .d { grid-row:2; grid-column:2; } #pad .r { grid-row:2; grid-column:3; }
-  body { overscroll-behavior:none; }
 </style>
 </head>
 <body>
-<div id="info">점수: <span id="score">0</span> · 최고: <span id="best">0</span></div>
-<canvas id="c" width="400" height="400"></canvas>
-<p style="text-align:center;padding:0 12px">방향키/WASD/스와이프로 이동 · 스페이스바로 시작/재시작</p>
+<div id="info">
+  <div class="pill score">🍎 <span id="score">0</span></div>
+  <div class="pill"><small>최고</small> 🏆 <span id="best">0</span></div>
+</div>
+<canvas id="c"></canvas>
+<p id="help">방향키 · WASD · 스와이프로 이동 · 스페이스바로 시작</p>
 <div id="pad">
   <button class="up" data-k="ArrowUp">▲</button>
   <button class="l" data-k="ArrowLeft">◀</button>
@@ -28,18 +61,26 @@
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-const N = 20, S = canvas.width / N;
+const SIZE = 400, N = 20, S = SIZE / N;
+const INK = '#2b1d52';
+const FONT = '"Jua", "Apple SD Gothic Neo", sans-serif';
+// 선명하게: 화면 배율만큼 크게 그리고 줄여 보여준다
+const dpr = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = canvas.height = SIZE * dpr;
+ctx.scale(dpr, dpr);
+
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
 let best = +localStorage.getItem('wormBest') || 0;
 bestEl.textContent = best;
 
-let worm, dir, nextDir, food, score, timer, state = 'ready';
+let worm, dir, nextDir, food, score, timer, state = 'ready', newBest = false;
 
 function reset() {
   worm = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
   dir = nextDir = {x:1,y:0};
   score = 0; scoreEl.textContent = 0;
+  newBest = false;
   placeFood();
 }
 function placeFood() {
@@ -59,31 +100,131 @@ function step() {
     score++; scoreEl.textContent = score; placeFood();
     clearInterval(timer); timer = setInterval(step, Math.max(60, 130 - score*3));
   } else worm.pop();
-  draw();
 }
 function gameOver() {
   clearInterval(timer); state = 'over';
-  if (score > best) { best = score; localStorage.setItem('wormBest', best); bestEl.textContent = best; }
-  draw();
+  if (score > best) { best = score; newBest = true; localStorage.setItem('wormBest', best); bestEl.textContent = best; }
 }
-function text(msg, y, size) {
-  ctx.fillStyle = '#fff'; ctx.font = `bold ${size}px sans-serif`; ctx.textAlign = 'center';
-  ctx.fillText(msg, canvas.width/2, y);
+
+// ---------- 그리기 ----------
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
-function draw() {
-  ctx.fillStyle = '#0e1a0e'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  if (!worm) { text('🐛 지렁이 게임', 190, 28); text('아무 방향키나 클릭으로 시작', 230, 18); return; }
-  ctx.fillStyle = '#e44'; ctx.beginPath();
-  ctx.arc(food.x*S+S/2, food.y*S+S/2, S/2-3, 0, 7); ctx.fill();
-  worm.forEach((s,i) => {
-    ctx.fillStyle = i===0 ? '#9f6' : '#4b4';
-    ctx.fillRect(s.x*S+1, s.y*S+1, S-2, S-2);
-  });
-  if (state === 'over') {
-    ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(0,0,canvas.width,canvas.height);
-    text('게임 오버', 190, 32); text('스페이스바로 재시작', 230, 18);
+function label(msg, x, y, size, fill = '#fff') {
+  ctx.font = `${size}px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(3, size * 0.22);
+  ctx.strokeStyle = INK;
+  ctx.strokeText(msg, x, y);
+  ctx.fillStyle = fill;
+  ctx.fillText(msg, x, y);
+}
+// 흰 판 + 테두리 + 그림자 (시작·게임 오버 안내)
+function card(x, y, w, h, fill = '#fff') {
+  ctx.fillStyle = INK; roundRect(x, y + 6, w, h, 20); ctx.fill();
+  ctx.fillStyle = fill; roundRect(x, y, w, h, 20); ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.stroke();
+}
+
+function drawBoard() {
+  // 잔디 체크무늬
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    ctx.fillStyle = (x + y) % 2 ? '#8ee06a' : '#a3ea7e';
+    ctx.fillRect(x * S, y * S, S, S);
   }
 }
+
+// 지렁이: 마디를 둥글게 이어 그린다. 테두리 먼저, 그 위에 분홍 몸통
+function drawWorm(t) {
+  const pts = worm.map((s) => [s.x * S + S / 2, s.y * S + S / 2]);
+  const r = (i) => S * (0.46 - Math.min(0.14, (i / Math.max(1, worm.length - 1)) * 0.14));   // 꼬리로 갈수록 가늘게
+  for (const pass of [0, 1]) {
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const [x, y] = pts[i];
+      ctx.fillStyle = pass ? (i % 4 === 2 ? '#ff7aa0' : '#ff9fbd') : INK;
+      ctx.beginPath(); ctx.arc(x, y, r(i) + (pass ? 0 : 3), 0, Math.PI * 2); ctx.fill();
+      if (i > 0) {
+        // 이웃 마디 사이를 메운다
+        const [px, py] = pts[i - 1];
+        const rr = Math.min(r(i), r(i - 1)) + (pass ? 0 : 3);
+        ctx.fillStyle = pass ? '#ff9fbd' : INK;
+        if (px === x) ctx.fillRect(x - rr, Math.min(y, py), rr * 2, Math.abs(py - y));
+        else ctx.fillRect(Math.min(x, px), y - rr, Math.abs(px - x), rr * 2);
+      }
+    }
+  }
+  // 등의 반짝임
+  ctx.fillStyle = 'rgba(255,255,255,.45)';
+  for (let i = 1; i < pts.length; i += 2) {
+    const [x, y] = pts[i];
+    ctx.beginPath(); ctx.arc(x - 3, y - 4, r(i) * 0.28, 0, Math.PI * 2); ctx.fill();
+  }
+  // 머리: 가는 방향을 보는 눈, 볼터치
+  const [hx, hy] = pts[0];
+  const ex = dir.x * 3, ey = dir.y * 3;
+  const side = [-dir.y, dir.x];
+  for (const k of [-1, 1]) {
+    const cx = hx + side[0] * 5 * k + dir.x * 2, cy = hy + side[1] * 5 * k + dir.y * 2;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(cx, cy, 4.2, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.fillStyle = INK;
+    ctx.beginPath(); ctx.arc(cx + ex * 0.5, cy + ey * 0.5, 2.1, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,90,140,.55)';
+  for (const k of [-1, 1]) {
+    ctx.beginPath(); ctx.arc(hx + side[0] * 7 * k - dir.x * 3, hy + side[1] * 7 * k - dir.y * 3, 2.4, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawFood(t) {
+  const x = food.x * S + S / 2, y = food.y * S + S / 2;
+  const bob = Math.sin(t * 6) * 2;
+  ctx.fillStyle = 'rgba(43,29,82,.25)';
+  ctx.beginPath(); ctx.ellipse(x, y + S * 0.38, S * 0.32 - bob * 0.5, S * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.font = `${S * 0.95}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🍎', x, y - 2 + bob);
+}
+
+function draw(now) {
+  const t = now / 1000;
+  drawBoard();
+  if (!worm) {
+    card(60, 120, 280, 160);
+    label('🐛 지렁이', 200, 172, 44, '#ff9fbd');
+    ctx.fillStyle = INK; ctx.font = `17px ${FONT}`; ctx.textAlign = 'center';
+    ctx.fillText('사과를 먹고 쑥쑥 길어지기!', 200, 218);
+    const s = 1 + Math.sin(t * 5) * 0.04;
+    ctx.save(); ctx.translate(200, 252); ctx.scale(s, s);
+    label('아무 방향키나 탭으로 시작', 0, 0, 16, '#ffd23f');
+    ctx.restore();
+  } else {
+    drawFood(t);
+    drawWorm(t);
+    if (state === 'over') {
+      ctx.fillStyle = 'rgba(43,29,82,.45)'; ctx.fillRect(0, 0, SIZE, SIZE);
+      card(70, 110, 260, 180);
+      label('게임 오버', 200, 150, 38, '#ff5fa2');
+      label(`🍎 ${score}`, 200, 202, 40, '#ffd23f');
+      ctx.fillStyle = INK; ctx.font = `16px ${FONT}`; ctx.textAlign = 'center';
+      ctx.fillText(newBest ? '🏆 새 최고 기록!' : `최고 기록 ${best}`, 200, 240);
+      ctx.fillStyle = '#6b5c95';
+      ctx.fillText('스페이스바 · 탭으로 다시', 200, 266);
+    }
+  }
+  requestAnimationFrame(draw);
+}
+
 function turn(x, y) {
   if (state !== 'play') return;
   if (x === -dir.x && y === -dir.y) return;
@@ -104,8 +245,8 @@ canvas.addEventListener('touchend', e => {
 document.querySelectorAll('#pad button').forEach(b => b.addEventListener('pointerdown', e => {
   e.preventDefault(); if (state !== 'play') start(); turn(...keys[b.dataset.k]);
 }));
-draw();
 canvas.addEventListener('click', () => { if (state !== 'play') start(); });
+requestAnimationFrame(draw);
 </script>
 </body>
 </html>
