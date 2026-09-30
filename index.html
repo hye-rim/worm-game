@@ -17,14 +17,24 @@
   :root { --ink:#2b1d52; --yellow:#ffd23f; --pink:#ff5fa2; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   body {
-    margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    margin:0; min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
     padding:12px; overscroll-behavior:none; user-select:none;
     background:
       repeating-linear-gradient(-30deg, rgba(255,255,255,.08) 0 26px, transparent 26px 56px),
       linear-gradient(180deg, #7ed957 0%, #2fb35a 100%) fixed;
     color:var(--ink); font-family:'Jua', -apple-system, 'Apple SD Gothic Neo', sans-serif;
   }
-  #info { display:flex; gap:10px; width:min(400px, 92vw); }
+  /* 판 크기: 화면 폭과 높이(점수줄·방향 버튼 자리를 뺀 만큼) 중 작은 쪽에 맞춘다 */
+  :root { --board:min(400px, 92vw, calc(100dvh - 280px)); }
+  #help .pc { display:none; }
+  @media (pointer:fine) { #help .pc { display:inline; } #help .touch { display:none; } }
+  @media (pointer:fine) { :root { --board:min(440px, 92vw, calc(100dvh - 140px)); } #pad { display:none !important; } }
+  #info { display:flex; gap:10px; width:var(--board); min-width:260px; }
+  #pauseBtn {
+    flex:none; width:44px; height:40px; border:3px solid var(--ink); border-radius:14px; background:#fff; color:var(--ink);
+    box-shadow:0 4px 0 var(--ink); font-size:16px; font-family:inherit; cursor:pointer;
+  }
+  #pauseBtn:active { transform:translateY(3px); box-shadow:0 1px 0 var(--ink); }
   .pill {
     display:flex; align-items:center; gap:6px; white-space:nowrap;
     background:#fff; border:3px solid var(--ink); border-radius:999px; box-shadow:0 4px 0 var(--ink);
@@ -33,7 +43,7 @@
   .pill.score { background:var(--yellow); flex:1; }
   .pill small { font-size:13px; color:#6b5c95; }
   canvas {
-    width:min(400px, 92vw); height:auto; aspect-ratio:1; display:block;
+    width:var(--board); min-width:260px; height:auto; aspect-ratio:1; display:block;
     border-radius:22px; touch-action:none;
     box-shadow:0 0 0 4px var(--ink), 0 8px 0 4px var(--ink), 0 18px 34px rgba(0,0,0,.25);
   }
@@ -54,9 +64,10 @@
 <div id="info">
   <div class="pill score">🍎 <span id="score">0</span></div>
   <div class="pill"><small>최고</small> 🏆 <span id="best">0</span></div>
+  <button id="pauseBtn" aria-label="일시정지">⏸</button>
 </div>
 <canvas id="c"></canvas>
-<p id="help">방향키 · WASD · 스와이프로 이동 · 스페이스바로 시작</p>
+<p id="help"><span class="pc">방향키·WASD 이동 · 스페이스 시작 · P 멈춤</span><span class="touch">화면을 밀거나 버튼을 눌러 이동</span></p>
 <div id="pad">
   <button class="up" data-k="ArrowUp">▲</button>
   <button class="l" data-k="ArrowLeft">◀</button>
@@ -79,11 +90,12 @@ const bestEl = document.getElementById('best');
 let best = +localStorage.getItem('wormBest') || 0;
 bestEl.textContent = best;
 
-let worm, dir, nextDir, food, score, timer, state = 'ready', newBest = false;
+let worm, dir, food, score, timer, state = 'ready', newBest = false;
+let turns = [];          // 다음 칸들에서 꺾을 방향 (빠르게 두 번 꺾어도 둘 다 먹게 두 개까지)
 
 function reset() {
   worm = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
-  dir = nextDir = {x:1,y:0};
+  dir = {x:1,y:0}; turns = [];
   score = 0; scoreEl.textContent = 0;
   newBest = false;
   placeFood();
@@ -92,18 +104,30 @@ function placeFood() {
   do { food = {x:Math.floor(Math.random()*N), y:Math.floor(Math.random()*N)}; }
   while (worm.some(s => s.x===food.x && s.y===food.y));
 }
+const speedMs = () => Math.max(60, 130 - score * 3);
 function start() {
   reset(); state = 'play';
-  clearInterval(timer); timer = setInterval(step, 130);
+  clearInterval(timer); timer = setInterval(step, speedMs());
 }
+// 다른 앱·탭에 갔다 오면 멈춰 있게. 다시 탭하거나 스페이스·P 로 이어서
+function pause() {
+  if (state !== 'play') return;
+  state = 'pause'; clearInterval(timer);
+}
+function resume() {
+  if (state !== 'pause') return;
+  state = 'play'; clearInterval(timer); timer = setInterval(step, speedMs());
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+addEventListener('blur', pause);
 function step() {
-  dir = nextDir;
+  if (turns.length) dir = turns.shift();
   const h = {x:worm[0].x+dir.x, y:worm[0].y+dir.y};
   if (h.x<0||h.y<0||h.x>=N||h.y>=N || worm.some(s=>s.x===h.x&&s.y===h.y)) return gameOver();
   worm.unshift(h);
   if (h.x===food.x && h.y===food.y) {
     score++; scoreEl.textContent = score; placeFood();
-    clearInterval(timer); timer = setInterval(step, Math.max(60, 130 - score*3));
+    clearInterval(timer); timer = setInterval(step, speedMs());
   } else worm.pop();
 }
 function gameOver() {
@@ -225,6 +249,12 @@ function draw(now) {
       ctx.fillText(newBest ? '🏆 새 최고 기록!' : `최고 기록 ${best}`, 200, 240);
       ctx.fillStyle = '#6b5c95';
       ctx.fillText('스페이스바 · 탭으로 다시', 200, 266);
+    } else if (state === 'pause') {
+      ctx.fillStyle = 'rgba(43,29,82,.45)'; ctx.fillRect(0, 0, SIZE, SIZE);
+      card(80, 130, 240, 140);
+      label('일시정지', 200, 175, 38, '#ffd23f');
+      ctx.fillStyle = '#6b5c95'; ctx.font = `16px ${FONT}`; ctx.textAlign = 'center';
+      ctx.fillText('탭 · 스페이스바로 계속', 200, 230);
     }
   }
   requestAnimationFrame(draw);
@@ -232,25 +262,46 @@ function draw(now) {
 
 function turn(x, y) {
   if (state !== 'play') return;
-  if (x === -dir.x && y === -dir.y) return;
-  nextDir = {x, y};
+  const last = turns.length ? turns[turns.length - 1] : dir;
+  if ((x === last.x && y === last.y) || (x === -last.x && y === -last.y)) return;   // 같은 방향·뒤로 돌기는 무시
+  if (turns.length < 2) turns.push({x, y});
 }
-const keys = {ArrowUp:[0,-1],w:[0,-1],ArrowDown:[0,1],s:[0,1],ArrowLeft:[-1,0],a:[-1,0],ArrowRight:[1,0],d:[1,0]};
+// 누르면 시작/이어서, 게임 중이면 그 방향으로
+function act(k) {
+  if (state === 'pause') { resume(); return; }
+  if (state !== 'play') start();
+  if (k) turn(...k);
+}
+// 키보드 배치 기준(e.code)으로 받는다: 한글 입력 상태나 Caps Lock 이어도 WASD 가 먹는다
+const keys = {ArrowUp:[0,-1],KeyW:[0,-1],ArrowDown:[0,1],KeyS:[0,1],ArrowLeft:[-1,0],KeyA:[-1,0],ArrowRight:[1,0],KeyD:[1,0]};
 addEventListener('keydown', e => {
-  if (e.code === 'Space') { e.preventDefault(); if (state !== 'play') start(); return; }
-  const k = keys[e.key]; if (k) { e.preventDefault(); if (state !== 'play') start(); turn(...k); }
+  if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); state === 'pause' ? resume() : pause(); return; }
+  if (e.code === 'Space') { e.preventDefault(); act(null); return; }
+  const k = keys[e.code]; if (k) { e.preventDefault(); act(k); }
 });
-let t0;
-canvas.addEventListener('touchstart', e => { t0 = e.touches[0]; if (state !== 'play') start(); });
-canvas.addEventListener('touchend', e => {
-  const t = e.changedTouches[0], dx = t.clientX-t0.clientX, dy = t.clientY-t0.clientY;
-  if (Math.max(Math.abs(dx),Math.abs(dy)) < 20) return;
-  Math.abs(dx) > Math.abs(dy) ? turn(Math.sign(dx),0) : turn(0,Math.sign(dy));
+// 스와이프: 손가락을 떼기 전에, 18px 밀리는 순간 바로 꺾는다. 이어서 다른 쪽으로 밀면 또 꺾는다
+let sx = null, sy = 0;
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  sx = e.clientX; sy = e.clientY;
+  try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+  if (state !== 'play') act(null);
 });
+canvas.addEventListener('pointermove', e => {
+  if (sx === null) return;
+  const dx = e.clientX - sx, dy = e.clientY - sy;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
+  Math.abs(dx) > Math.abs(dy) ? turn(Math.sign(dx), 0) : turn(0, Math.sign(dy));
+  sx = e.clientX; sy = e.clientY;
+});
+for (const ev of ['pointerup', 'pointercancel']) canvas.addEventListener(ev, () => { sx = null; });
+const keyOf = {ArrowUp:'ArrowUp',ArrowDown:'ArrowDown',ArrowLeft:'ArrowLeft',ArrowRight:'ArrowRight'};
 document.querySelectorAll('#pad button').forEach(b => b.addEventListener('pointerdown', e => {
-  e.preventDefault(); if (state !== 'play') start(); turn(...keys[b.dataset.k]);
+  e.preventDefault(); act(keys[keyOf[b.dataset.k]]);
 }));
-canvas.addEventListener('click', () => { if (state !== 'play') start(); });
+document.getElementById('pauseBtn').addEventListener('pointerdown', e => {
+  e.preventDefault(); state === 'pause' ? resume() : pause();
+});
 requestAnimationFrame(draw);
 </script>
 </body>
