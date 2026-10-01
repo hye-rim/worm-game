@@ -80,6 +80,8 @@ const ctx = canvas.getContext('2d');
 const SIZE = 400, N = 20, S = SIZE / N;
 const INK = '#2b1d52';
 const FONT = '"Jua", "Apple SD Gothic Neo", sans-serif';
+// 기기에 맞는 안내만 (폰은 손가락, PC는 키보드)
+const TOUCH = window.matchMedia('(pointer: coarse)').matches;
 // 선명하게: 화면 배율만큼 크게 그리고 줄여 보여준다
 const dpr = Math.min(3, window.devicePixelRatio || 1);
 canvas.width = canvas.height = SIZE * dpr;
@@ -235,7 +237,7 @@ function draw(now) {
     ctx.fillText('사과를 먹고 쑥쑥 길어지기!', 200, 218);
     const s = 1 + Math.sin(t * 5) * 0.04;
     ctx.save(); ctx.translate(200, 252); ctx.scale(s, s);
-    label('아무 방향키나 탭으로 시작', 0, 0, 16, '#ffd23f');
+    label(TOUCH ? '화면을 탭해서 시작' : '방향키나 스페이스바로 시작', 0, 0, 16, '#ffd23f');
     ctx.restore();
   } else {
     drawFood(t);
@@ -248,13 +250,13 @@ function draw(now) {
       ctx.fillStyle = INK; ctx.font = `16px ${FONT}`; ctx.textAlign = 'center';
       ctx.fillText(newBest ? '🏆 새 최고 기록!' : `최고 기록 ${best}`, 200, 240);
       ctx.fillStyle = '#6b5c95';
-      ctx.fillText('스페이스바 · 탭으로 다시', 200, 266);
+      ctx.fillText(TOUCH ? '탭해서 다시' : '스페이스바로 다시', 200, 266);
     } else if (state === 'pause') {
       ctx.fillStyle = 'rgba(43,29,82,.45)'; ctx.fillRect(0, 0, SIZE, SIZE);
       card(80, 130, 240, 140);
       label('일시정지', 200, 175, 38, '#ffd23f');
       ctx.fillStyle = '#6b5c95'; ctx.font = `16px ${FONT}`; ctx.textAlign = 'center';
-      ctx.fillText('탭 · 스페이스바로 계속', 200, 230);
+      ctx.fillText(TOUCH ? '탭해서 계속' : '스페이스바 · P로 계속', 200, 230);
     }
   }
   requestAnimationFrame(draw);
