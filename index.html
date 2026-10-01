@@ -76,6 +76,12 @@
 </div>
 <script>
 const canvas = document.getElementById('c');
+// 저장소 접근이 막힌 환경(아이폰 비공개 모드, 쿠키 차단)에서는 localStorage 를 읽기만 해도 예외가 난다.
+// 그래도 게임은 되어야 하니 모든 접근을 감싼다 (기록만 저장되지 않는다)
+const safeStore = {
+  get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} },
+};
 const ctx = canvas.getContext('2d');
 const SIZE = 400, N = 20, S = SIZE / N;
 const INK = '#2b1d52';
@@ -89,7 +95,7 @@ ctx.scale(dpr, dpr);
 
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
-let best = +localStorage.getItem('wormBest') || 0;
+let best = +safeStore.get('wormBest') || 0;
 bestEl.textContent = best;
 
 let worm, dir, food, score, timer, state = 'ready', newBest = false;
@@ -134,7 +140,7 @@ function step() {
 }
 function gameOver() {
   clearInterval(timer); state = 'over';
-  if (score > best) { best = score; newBest = true; localStorage.setItem('wormBest', best); bestEl.textContent = best; }
+  if (score > best) { best = score; newBest = true; safeStore.set('wormBest', best); bestEl.textContent = best; }
 }
 
 // ---------- 그리기 ----------
