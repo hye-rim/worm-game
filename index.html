@@ -83,7 +83,7 @@ const FONT = '"Jua", "Apple SD Gothic Neo", sans-serif';
 // 기기에 맞는 안내만 (폰은 손가락, PC는 키보드)
 const TOUCH = window.matchMedia('(pointer: coarse)').matches;
 // 선명하게: 화면 배율만큼 크게 그리고 줄여 보여준다
-const dpr = Math.min(3, window.devicePixelRatio || 1);
+const dpr = Math.min(2, window.devicePixelRatio || 1);
 canvas.width = canvas.height = SIZE * dpr;
 ctx.scale(dpr, dpr);
 
