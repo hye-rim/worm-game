@@ -74,6 +74,7 @@
   <button class="d" data-k="ArrowDown">▼</button>
   <button class="r" data-k="ArrowRight">▶</button>
 </div>
+<script src="logic.js"></script>
 <script>
 const canvas = document.getElementById('c');
 // 저장소 접근이 막힌 환경(아이폰 비공개 모드, 쿠키 차단)에서는 localStorage 를 읽기만 해도 예외가 난다.
@@ -98,21 +99,16 @@ const bestEl = document.getElementById('best');
 let best = +safeStore.get('wormBest') || 0;
 bestEl.textContent = best;
 
-let worm, dir, food, score, timer, state = 'ready', newBest = false;
-let turns = [];          // 다음 칸들에서 꺾을 방향 (빠르게 두 번 꺾어도 둘 다 먹게 두 개까지)
+// 규칙(이동·꺾기·먹기·충돌)은 logic.js 의 LOGIC_WORM. 여기서는 시간·그리기·입력만
+const L = LOGIC_WORM;
+let G = null, timer, state = 'ready', newBest = false;
 
 function reset() {
-  worm = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
-  dir = {x:1,y:0}; turns = [];
-  score = 0; scoreEl.textContent = 0;
+  G = L.newGame();
+  scoreEl.textContent = 0;
   newBest = false;
-  placeFood();
 }
-function placeFood() {
-  do { food = {x:Math.floor(Math.random()*N), y:Math.floor(Math.random()*N)}; }
-  while (worm.some(s => s.x===food.x && s.y===food.y));
-}
-const speedMs = () => Math.max(60, 130 - score * 3);
+const speedMs = () => L.speedMs(G.score);
 function start() {
   reset(); state = 'play';
   clearInterval(timer); timer = setInterval(step, speedMs());
@@ -129,18 +125,16 @@ function resume() {
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 addEventListener('blur', pause);
 function step() {
-  if (turns.length) dir = turns.shift();
-  const h = {x:worm[0].x+dir.x, y:worm[0].y+dir.y};
-  if (h.x<0||h.y<0||h.x>=N||h.y>=N || worm.some(s=>s.x===h.x&&s.y===h.y)) return gameOver();
-  worm.unshift(h);
-  if (h.x===food.x && h.y===food.y) {
-    score++; scoreEl.textContent = score; placeFood();
+  const r = L.step(G);
+  if (r === 'dead') return gameOver();
+  if (r === 'eat') {
+    scoreEl.textContent = G.score;
     clearInterval(timer); timer = setInterval(step, speedMs());
-  } else worm.pop();
+  }
 }
 function gameOver() {
   clearInterval(timer); state = 'over';
-  if (score > best) { best = score; newBest = true; safeStore.set('wormBest', best); bestEl.textContent = best; }
+  if (G.score > best) { best = G.score; newBest = true; safeStore.set('wormBest', best); bestEl.textContent = best; }
 }
 
 // ---------- 그리기 ----------
@@ -181,6 +175,7 @@ function drawBoard() {
 
 // 지렁이: 마디를 둥글게 이어 그린다. 테두리 먼저, 그 위에 분홍 몸통
 function drawWorm(t) {
+  const { worm, dir } = G;
   const pts = worm.map((s) => [s.x * S + S / 2, s.y * S + S / 2]);
   const r = (i) => S * (0.46 - Math.min(0.14, (i / Math.max(1, worm.length - 1)) * 0.14));   // 꼬리로 갈수록 가늘게
   for (const pass of [0, 1]) {
@@ -223,6 +218,8 @@ function drawWorm(t) {
 }
 
 function drawFood(t) {
+  const { food } = G;
+  if (!food) return;
   const x = food.x * S + S / 2, y = food.y * S + S / 2;
   const bob = Math.sin(t * 6) * 2;
   ctx.fillStyle = 'rgba(43,29,82,.25)';
@@ -236,7 +233,7 @@ function drawFood(t) {
 function draw(now) {
   const t = now / 1000;
   drawBoard();
-  if (!worm) {
+  if (!G) {
     card(60, 120, 280, 160);
     label('🐛 지렁이', 200, 172, 44, '#ff9fbd');
     ctx.fillStyle = INK; ctx.font = `17px ${FONT}`; ctx.textAlign = 'center';
@@ -252,7 +249,7 @@ function draw(now) {
       ctx.fillStyle = 'rgba(43,29,82,.45)'; ctx.fillRect(0, 0, SIZE, SIZE);
       card(70, 110, 260, 180);
       label('게임 오버', 200, 150, 38, '#ff5fa2');
-      label(`🍎 ${score}`, 200, 202, 40, '#ffd23f');
+      label(`🍎 ${G.score}`, 200, 202, 40, '#ffd23f');
       ctx.fillStyle = INK; ctx.font = `16px ${FONT}`; ctx.textAlign = 'center';
       ctx.fillText(newBest ? '🏆 새 최고 기록!' : `최고 기록 ${best}`, 200, 240);
       ctx.fillStyle = '#6b5c95';
@@ -269,10 +266,7 @@ function draw(now) {
 }
 
 function turn(x, y) {
-  if (state !== 'play') return;
-  const last = turns.length ? turns[turns.length - 1] : dir;
-  if ((x === last.x && y === last.y) || (x === -last.x && y === -last.y)) return;   // 같은 방향·뒤로 돌기는 무시
-  if (turns.length < 2) turns.push({x, y});
+  if (state === 'play') L.turn(G, x, y);
 }
 // 누르면 시작/이어서, 게임 중이면 그 방향으로
 function act(k) {
