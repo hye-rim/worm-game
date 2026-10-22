@@ -76,6 +76,8 @@
 </div>
 <script src="logic.js"></script>
 <script>
+// 오락실 튜토리얼이 '진짜로 일어난 일'을 알아채는 신호 (arcade/public/tutorial.js 가 듣는다. 튜토리얼이 아니면 아무도 안 듣는다)
+const tutorialSignal = (type) => window.dispatchEvent(new CustomEvent('arcade:tutorial', { detail: { type } }));
 const canvas = document.getElementById('c');
 // 저장소 접근이 막힌 환경(아이폰 비공개 모드, 쿠키 차단)에서는 localStorage 를 읽기만 해도 예외가 난다.
 // 그래도 게임은 되어야 하니 모든 접근을 감싼다 (기록만 저장되지 않는다)
@@ -266,7 +268,7 @@ function draw(now) {
 }
 
 function turn(x, y) {
-  if (state === 'play') L.turn(G, x, y);
+  if (state === 'play' && L.turn(G, x, y)) tutorialSignal('turn');
 }
 // 누르면 시작/이어서, 게임 중이면 그 방향으로
 function act(k) {
