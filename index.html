@@ -113,6 +113,7 @@ function reset() {
 const speedMs = () => L.speedMs(G.score);
 function start() {
   reset(); state = 'play';
+  tutorialSignal('start');
   clearInterval(timer); timer = setInterval(step, speedMs());
 }
 // 다른 앱·탭에 갔다 오면 멈춰 있게. 다시 탭하거나 스페이스·P 로 이어서
