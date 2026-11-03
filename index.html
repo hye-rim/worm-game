@@ -281,6 +281,7 @@ function act(k) {
 const keys = {ArrowUp:[0,-1],KeyW:[0,-1],ArrowDown:[0,1],KeyS:[0,1],ArrowLeft:[-1,0],KeyA:[-1,0],ArrowRight:[1,0],KeyD:[1,0]};
 addEventListener('keydown', e => {
   if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); state === 'pause' ? resume() : pause(); return; }
+  if (e.repeat && state !== 'play' && state !== 'pause') { e.preventDefault(); return; }       // 키를 누른 채 죽어도 결과 화면 없이 바로 다시 시작되지 않게
   if (e.code === 'Space') { e.preventDefault(); act(null); return; }
   const k = keys[e.code]; if (k) { e.preventDefault(); act(k); }
 });
