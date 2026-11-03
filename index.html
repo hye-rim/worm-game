@@ -42,6 +42,15 @@
   }
   .pill.score { background:var(--yellow); flex:1; }
   .pill small { font-size:13px; color:#6b5c95; }
+  #modeRow { display:flex; gap:8px; width:var(--board); min-width:260px; align-items:center; margin-top:-4px; }
+  #modeRow button {
+    flex:none; border:3px solid var(--ink); border-radius:999px; background:#fff; color:var(--ink); padding:3px 14px;
+    box-shadow:0 3px 0 var(--ink); font-size:15px; font-family:inherit; cursor:pointer;
+  }
+  #modeRow button.on { background:var(--yellow); }
+  #modeRow button:disabled { opacity:.55; cursor:default; }
+  #modeRow button:active:not(:disabled) { transform:translateY(2px); box-shadow:0 1px 0 var(--ink); }
+  #mapName { margin-left:auto; font-size:14px; color:#fff; paint-order:stroke fill; -webkit-text-stroke:3px var(--ink); white-space:nowrap; }
   canvas {
     width:var(--board); min-width:260px; height:auto; aspect-ratio:1; display:block;
     border-radius:22px; touch-action:none;
@@ -66,6 +75,7 @@
   <div class="pill"><small>최고</small> 🏆 <span id="best">0</span></div>
   <button id="pauseBtn" aria-label="일시정지">⏸</button>
 </div>
+<div id="modeRow"><button data-mode="classic" class="on">기본</button><button data-mode="items">🎁 아이템 모드</button><span id="mapName"></span></div>
 <canvas id="c"></canvas>
 <p id="help"><span class="pc">방향키·WASD 이동 · 스페이스 시작 · P 멈춤</span><span class="touch">화면을 밀거나 버튼을 눌러 이동</span></p>
 <div id="pad">
@@ -98,23 +108,42 @@ ctx.scale(dpr, dpr);
 
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
-let best = +safeStore.get('wormBest') || 0;
+// 모드: 기본 / 아이템(돌 판 + 아이템). 기록은 따로 (기본 모드 기록 wormBest 는 로비에 보이는 그대로)
+const BEST_KEY = { classic: 'wormBest', items: 'wormItemBest' };
+const bests = { classic: +safeStore.get(BEST_KEY.classic) || 0, items: +safeStore.get(BEST_KEY.items) || 0 };
+let mode = safeStore.get('wormMode') === 'items' ? 'items' : 'classic';
+let best = bests[mode];
 bestEl.textContent = best;
 
 // 규칙(이동·꺾기·먹기·충돌)은 logic.js 의 LOGIC_WORM. 여기서는 시간·그리기·입력만
 const L = LOGIC_WORM;
-let G = null, timer, state = 'ready', newBest = false;
+let G = null, timer, state = 'ready', newBest = false, curMs = 0, floats = [];
+const modeBtns = document.querySelectorAll('#modeRow button');
+const mapNameEl = document.getElementById('mapName');
+function setMode(m) {
+  mode = m === 'items' ? 'items' : 'classic';
+  safeStore.set('wormMode', mode);
+  best = bests[mode]; bestEl.textContent = best;
+  modeBtns.forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  mapNameEl.textContent = '';
+}
+function lockModes(on) { modeBtns.forEach((b) => { b.disabled = on; }); }
+modeBtns.forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (state === 'ready' || state === 'over') setMode(b.dataset.mode); }));
+setMode(mode);
 
 function reset() {
-  G = L.newGame();
+  G = L.newGame(Math.random, { items: mode === 'items', map: Math.floor(Math.random() * L.MAPS.length) });
+  floats = [];
+  mapNameEl.textContent = mode === 'items' ? `🗺 ${L.MAPS[G.map].name}` : '';
   scoreEl.textContent = 0;
   newBest = false;
 }
-const speedMs = () => L.speedMs(G.score);
+const speedMs = () => L.speedOf(G);
+function runTimer() { clearInterval(timer); curMs = speedMs(); timer = setInterval(step, curMs); }
 function start() {
-  reset(); state = 'play';
+  reset(); state = 'play'; lockModes(true);
   tutorialSignal('start');
-  clearInterval(timer); timer = setInterval(step, speedMs());
+  runTimer();
 }
 // 다른 앱·탭에 갔다 오면 멈춰 있게. 다시 탭하거나 스페이스·P 로 이어서
 function pause() {
@@ -123,21 +152,28 @@ function pause() {
 }
 function resume() {
   if (state !== 'pause') return;
-  state = 'play'; clearInterval(timer); timer = setInterval(step, speedMs());
+  state = 'play'; runTimer();
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 addEventListener('blur', pause);
 function step() {
   const r = L.step(G);
   if (r === 'dead') return gameOver();
-  if (r === 'eat') {
-    scoreEl.textContent = G.score;
-    clearInterval(timer); timer = setInterval(step, speedMs());
-  }
+  scoreEl.textContent = G.score;
+  for (const e of G.events.splice(0)) onEvent(e);
+  if (speedMs() !== curMs) runTimer();                         // 먹어서 빨라졌거나 느린 걸음이 시작·끝났다
+}
+// 아이템 모드의 일들 → 머리 위에 글씨
+function onEvent(e) {
+  const h = G.worm[0], at = (txt, color) => floats.push({ x: h.x * S + S / 2, y: h.y * S, text: txt, color, t: 0 });
+  if (e.type === 'item') {
+    tutorialSignal('item');
+    at(e.kind === 'gold' ? `⭐ +${L.GOLD_SCORE}` : e.kind === 'slow' ? '🐌 느린 걸음!' : '🛡 보호막!', '#ffd23f');
+  } else if (e.type === 'effectEnd') at(e.kind === 'shield' ? '🛡 끝' : '🐌 끝', '#fff');
 }
 function gameOver() {
-  clearInterval(timer); state = 'over';
-  if (G.score > best) { best = G.score; newBest = true; safeStore.set('wormBest', best); bestEl.textContent = best; }
+  clearInterval(timer); state = 'over'; lockModes(false);
+  if (G.score > best) { best = G.score; bests[mode] = best; newBest = true; safeStore.set(BEST_KEY[mode], best); bestEl.textContent = best; }
 }
 
 // ---------- 그리기 ----------
@@ -220,6 +256,55 @@ function drawWorm(t) {
   }
 }
 
+// 돌 (아이템 모드의 판)
+function drawRocks() {
+  for (const i of G.rocks) {
+    const x = (i % N) * S, y = Math.floor(i / N) * S;
+    ctx.fillStyle = 'rgba(43,29,82,.3)'; roundRect(x + 2, y + 5, S - 4, S - 4, 7); ctx.fill();
+    ctx.fillStyle = '#9aa3b5'; roundRect(x + 1.5, y + 2, S - 3, S - 4, 7); ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.ellipse(x + S * 0.34, y + S * 0.32, 4, 2.4, -0.5, 0, Math.PI * 2); ctx.fill();
+  }
+}
+// 아이템: 통통 뛰는 이모지와 남은 시간 고리 (사라지기 직전에는 깜빡인다)
+function drawItem(t) {
+  const it = G.item;
+  if (!it) return;
+  if (it.ttl < 18 && Math.floor(t * 8) % 2) return;
+  const x = it.x * S + S / 2, y = it.y * S + S / 2, bob = Math.sin(t * 7) * 2;
+  const k = it.ttl / L.ITEM_TTL;
+  ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.beginPath(); ctx.arc(x, y, S * 0.62, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 2; ctx.strokeStyle = it.kind === 'gold' ? '#ffd23f' : it.kind === 'slow' ? '#6ec1ff' : '#b88aff';
+  ctx.beginPath(); ctx.arc(x, y, S * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); ctx.stroke();
+  ctx.font = `${S * 0.9}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(it.kind === 'gold' ? '⭐' : it.kind === 'slow' ? '🐌' : '🛡', x, y - 1 + bob);
+}
+// 지금 걸린 효과와 남은 시간(초), 머리를 감싸는 보호막
+function drawEffects(t) {
+  const secs = (steps) => Math.ceil(steps * speedMs() / 1000);
+  let x = 8;
+  for (const [k, icon] of [['shield', '🛡'], ['slow', '🐌']]) {
+    const n = G.effects[k];
+    if (n <= 0) continue;
+    ctx.fillStyle = INK; roundRect(x, 8, 62, 26, 13); ctx.fill();
+    ctx.fillStyle = n < 10 && Math.floor(t * 6) % 2 ? '#ff9fbd' : '#fff'; roundRect(x + 1.5, 6.5, 59, 24, 12); ctx.fill();
+    ctx.fillStyle = INK; ctx.font = `15px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(`${icon} ${secs(n)}초`, x + 8, 19.5);
+    x += 68;
+  }
+  if (G.effects.shield > 0) {
+    const [hx, hy] = [G.worm[0].x * S + S / 2, G.worm[0].y * S + S / 2];
+    ctx.lineWidth = 3; ctx.strokeStyle = G.effects.shield < 10 && Math.floor(t * 8) % 2 ? 'rgba(184,138,255,.3)' : 'rgba(184,138,255,.95)';
+    ctx.beginPath(); ctx.arc(hx, hy, S * 0.78, 0, Math.PI * 2); ctx.stroke();
+  }
+}
+function drawFloats(dt) {
+  for (const f of floats) { f.t += dt; }
+  floats = floats.filter((f) => f.t < 1.1);
+  for (const f of floats) { ctx.globalAlpha = Math.min(1, (1.1 - f.t) * 3); label(f.text, Math.max(50, Math.min(SIZE - 50, f.x)), f.y - f.t * 26, 17, f.color); }
+  ctx.globalAlpha = 1;
+}
+
 function drawFood(t) {
   const { food } = G;
   if (!food) return;
@@ -233,28 +318,34 @@ function drawFood(t) {
   ctx.fillText('🍎', x, y - 2 + bob);
 }
 
+let lastDraw = 0;
 function draw(now) {
-  const t = now / 1000;
+  const t = now / 1000, dt = lastDraw ? Math.min(0.1, (now - lastDraw) / 1000) : 0;
+  lastDraw = now;
   drawBoard();
   if (!G) {
     card(60, 120, 280, 160);
     label('🐛 지렁이', 200, 172, 44, '#ff9fbd');
     ctx.fillStyle = INK; ctx.font = `17px ${FONT}`; ctx.textAlign = 'center';
-    ctx.fillText('사과를 먹고 쑥쑥 길어지기!', 200, 218);
+    ctx.fillText(mode === 'items' ? '🎁 돌 판에서 아이템을 모아요!' : '사과를 먹고 쑥쑥 길어지기!', 200, 218);
     const s = 1 + Math.sin(t * 5) * 0.04;
     ctx.save(); ctx.translate(200, 252); ctx.scale(s, s);
     label(TOUCH ? '화면을 탭해서 시작' : '방향키나 스페이스바로 시작', 0, 0, 16, '#ffd23f');
     ctx.restore();
   } else {
+    drawRocks();
     drawFood(t);
+    drawItem(t);
     drawWorm(t);
+    drawEffects(t);
+    drawFloats(dt);
     if (state === 'over') {
       ctx.fillStyle = 'rgba(43,29,82,.45)'; ctx.fillRect(0, 0, SIZE, SIZE);
       card(70, 110, 260, 180);
       label('게임 오버', 200, 150, 38, '#ff5fa2');
       label(`🍎 ${G.score}`, 200, 202, 40, '#ffd23f');
       ctx.fillStyle = INK; ctx.font = `16px ${FONT}`; ctx.textAlign = 'center';
-      ctx.fillText(newBest ? '🏆 새 최고 기록!' : `최고 기록 ${best}`, 200, 240);
+      ctx.fillText((G.items ? `🎁 ${L.MAPS[G.map].name} · ` : '') + (newBest ? '🏆 새 최고 기록!' : `최고 기록 ${best}`), 200, 240);
       ctx.fillStyle = '#6b5c95';
       ctx.fillText(TOUCH ? '탭해서 다시' : '스페이스바로 다시', 200, 266);
     } else if (state === 'pause') {
